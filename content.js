@@ -35,19 +35,19 @@ function trackVideo(video) {
   if (trackedVideos.has(video)) return;
   trackedVideos.add(video);
 
-  // `loadstart` fires whenever a new source loads (SPA navigations on YouTube
-  // reuse the same <video> element, so `play` alone undercounts videos).
+  // Only count a "video start" after the user has actually watched a minimum
+  // amount, so silent hover-previews (YouTube home, IG, TikTok feeds) don't
+  // inflate the counter. Seconds and starts both gate on this threshold.
+  const MIN_WATCHED_SECONDS = 3;
+
   let countedThisSource = false;
-  video.addEventListener('loadstart', () => { countedThisSource = false; });
+  let watchedThisSource = 0;
+  video.addEventListener('loadstart', () => {
+    countedThisSource = false;
+    watchedThisSource = 0;
+  });
 
   let lastTick = null;
-
-  video.addEventListener('play', () => {
-    if (!countedThisSource) {
-      countedThisSource = true;
-      markNewVideo();
-    }
-  });
 
   video.addEventListener('timeupdate', () => {
     if (video.paused || video.ended || limitBlocked) {
@@ -58,8 +58,15 @@ function trackVideo(video) {
     if (lastTick !== null) {
       const elapsed = (now - lastTick) / 1000;
       if (elapsed > 0 && elapsed < 2) {
-        pendingSeconds += elapsed;
-        scheduleFlush();
+        watchedThisSource += elapsed;
+        if (watchedThisSource >= MIN_WATCHED_SECONDS) {
+          if (!countedThisSource) {
+            countedThisSource = true;
+            markNewVideo();
+          }
+          pendingSeconds += elapsed;
+          scheduleFlush();
+        }
       }
     }
     lastTick = now;
