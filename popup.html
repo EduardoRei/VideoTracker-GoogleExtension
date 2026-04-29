@@ -395,7 +395,7 @@
           <span data-i18n="notify_label">Notificar a cada</span>
         </label>
         <div class="setting-input-group">
-          <input type="number" id="notify-interval" min="1" value="60">
+          <input type="number" id="notify-interval" min="1" max="1440" value="60">
           <span class="setting-unit">min</span>
           <button class="btn-confirm" id="notify-confirm" title="Confirmar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -414,7 +414,7 @@
           <span data-i18n="max_videos_label">Max videos/dia</span>
         </label>
         <div class="setting-input-group">
-          <input type="number" id="max-videos" min="0" value="0">
+          <input type="number" id="max-videos" min="0" max="9999" value="0">
           <span class="setting-unit" data-i18n="unit_videos">vid</span>
           <button class="btn-confirm" id="maxvid-confirm" title="Confirmar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -433,7 +433,7 @@
           <span data-i18n="max_time_label">Max tempo/dia</span>
         </label>
         <div class="setting-input-group">
-          <input type="number" id="max-time" min="0" value="0">
+          <input type="number" id="max-time" min="0" max="1440" value="0">
           <span class="setting-unit">min</span>
           <button class="btn-confirm" id="maxtime-confirm" title="Confirmar">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

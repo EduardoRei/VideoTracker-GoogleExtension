@@ -395,15 +395,21 @@ function getExportKeys() {
   return { keys, type: 'daily' };
 }
 
+function csvEscape(v) {
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function csvRow(arr) { return arr.map(csvEscape).join(','); }
+
 function exportCSV() {
   const { keys, type } = getExportKeys();
   chrome.storage.local.get(keys, (result) => {
-    const rows = [['Date', 'Site', 'Videos', 'Seconds'].join(',')];
+    const rows = [csvRow(['Date', 'Site', 'Videos', 'Seconds'])];
 
     if (type === 'alltime') {
       const stats = result['stats_alltime'] || {};
       for (const [domain, data] of Object.entries(stats)) {
-        rows.push(['all_time', domain, data.videos, Math.round(data.seconds)].join(','));
+        rows.push(csvRow(['all_time', domain, data.videos, Math.round(data.seconds)]));
       }
     } else if (type === 'hourly') {
       for (let h = 0; h < 24; h++) {
@@ -411,7 +417,7 @@ function exportCSV() {
         const dateStr = keys[h].replace('stats_hourly_', '').replace(/_\d+$/, '');
         const hourLabel = `${dateStr} ${h.toString().padStart(2, '0')}:00`;
         for (const [domain, data] of Object.entries(stats)) {
-          rows.push([hourLabel, domain, data.videos, Math.round(data.seconds)].join(','));
+          rows.push(csvRow([hourLabel, domain, data.videos, Math.round(data.seconds)]));
         }
       }
     } else {
@@ -419,7 +425,7 @@ function exportCSV() {
         const dateStr = key.replace('stats_', '');
         const stats = result[key] || {};
         for (const [domain, data] of Object.entries(stats)) {
-          rows.push([dateStr, domain, data.videos, Math.round(data.seconds)].join(','));
+          rows.push(csvRow([dateStr, domain, data.videos, Math.round(data.seconds)]));
         }
       }
     }
@@ -451,7 +457,8 @@ document.getElementById('date-label').textContent = localDateStr(today);
 
 // Load saved settings
 chrome.storage.local.get(['vt_lang', 'vt_notify_interval', 'vt_max_videos', 'vt_max_time'], (result) => {
-  currentLang = result.vt_lang || 'pt';
+  const browserLang = (navigator.language || 'en').toLowerCase().startsWith('pt') ? 'pt' : 'en';
+  currentLang = result.vt_lang || browserLang;
   document.getElementById('notify-interval').value = result.vt_notify_interval || 60;
   document.getElementById('max-videos').value = result.vt_max_videos || 0;
   document.getElementById('max-time').value = result.vt_max_time || 0;

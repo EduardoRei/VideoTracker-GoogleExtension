@@ -19,35 +19,52 @@ function getHourKey() {
   return `stats_hourly_${localDateStr(now)}_${now.getHours()}`;
 }
 
-function updateStats(key, domain, msg, callback) {
-  chrome.storage.local.get([key], (result) => {
-    const stats = result[key] || {};
-    const site = stats[domain] || { videos: 0, seconds: 0 };
+// ── Per-key write queue: prevents read-modify-write races ──
+const writeQueues = new Map();
 
-    if (msg.type === 'VIDEO_STARTED') site.videos += 1;
-    if (msg.type === 'VIDEO_TICK')    site.seconds += msg.seconds;
-
-    stats[domain] = site;
-    chrome.storage.local.set({ [key]: stats }, () => {
-      if (callback) callback();
+function queueUpdate(key, mutator) {
+  const prev = writeQueues.get(key) || Promise.resolve();
+  const next = prev.then(() => new Promise((resolve) => {
+    chrome.storage.local.get([key], (result) => {
+      const updated = mutator(result[key]);
+      chrome.storage.local.set({ [key]: updated }, resolve);
     });
-  });
+  }));
+  writeQueues.set(key, next.finally(() => {
+    if (writeQueues.get(key) === next) writeQueues.delete(key);
+  }));
+  return next;
+}
+
+function applyEvent(stats, domain, msg) {
+  const s = stats || {};
+  const site = s[domain] || { videos: 0, seconds: 0 };
+  if (msg.type === 'VIDEO_STARTED') site.videos += (msg.count || 1);
+  if (msg.type === 'VIDEO_TICK')    site.seconds += msg.seconds;
+  s[domain] = site;
+  return s;
+}
+
+function updateStats(key, domain, msg) {
+  return queueUpdate(key, (cur) => applyEvent(cur, domain, msg));
 }
 
 // ── Notification check ──
 function checkNotification() {
   const todayKey = getTodayKey();
-  chrome.storage.local.get([todayKey, 'lastNotifiedStep', 'vt_notify_interval', 'vt_lang'], (result) => {
+  const stepKey = 'lastNotifiedStep_' + getTodayDate();
+  chrome.storage.local.get([todayKey, stepKey, 'vt_notify_interval', 'vt_lang'], (result) => {
     const stats = result[todayKey] || {};
     let totalSeconds = 0;
     for (const domain in stats) {
       totalSeconds += stats[domain].seconds;
     }
 
-    const intervalMinutes = result.vt_notify_interval || 60;
+    const intervalMinutes = result.vt_notify_interval ?? 60;
+    if (intervalMinutes <= 0) return;
     const intervalSeconds = intervalMinutes * 60;
     const stepsReached = Math.floor(totalSeconds / intervalSeconds);
-    const lastNotified = result.lastNotifiedStep || 0;
+    const lastNotified = result[stepKey] || 0;
 
     if (stepsReached > 0 && stepsReached > lastNotified) {
       const lang = result.vt_lang || 'pt';
@@ -71,14 +88,14 @@ function checkNotification() {
         en: `You've watched for ${timeStr} today. Maybe it's time to take a break!`
       };
 
-      chrome.notifications.create(`notify_${stepsReached}`, {
+      chrome.notifications.create(`notify_${getTodayDate()}_${stepsReached}`, {
         type: 'basic',
         iconUrl: 'icons/icon128.png',
         title: 'Video Tracker',
         message: messages[lang] || messages.pt
       });
 
-      chrome.storage.local.set({ lastNotifiedStep: stepsReached });
+      chrome.storage.local.set({ [stepKey]: stepsReached });
     }
   });
 }
@@ -105,9 +122,7 @@ function checkLimits(senderTabId) {
     const overridden = settings['vt_limit_override_' + getTodayDate()];
     const lang = settings.vt_lang || 'pt';
 
-    // If user already chose to override today, don't check again
     if (overridden) return;
-    // If no limits set, skip
     if (maxVideos === 0 && maxTimeMin === 0) return;
 
     getTodayTotals((totalVideos, totalSeconds) => {
@@ -146,6 +161,7 @@ function checkLimits(senderTabId) {
 }
 
 // ── Streak management ──
+// Rule: streak breaks only on an explicit override. Rest days (no activity) preserve the streak.
 function updateStreak() {
   const today = getTodayDate();
   chrome.storage.local.get(['vt_streak', 'vt_streak_best', 'vt_streak_last_date'], (result) => {
@@ -153,27 +169,20 @@ function updateStreak() {
     let best = result.vt_streak_best || 0;
     const lastDate = result.vt_streak_last_date;
 
-    if (lastDate === today) return; // Already updated today
+    if (lastDate === today) return;
 
-    // Check if yesterday had an override
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = localDateStr(yesterday);
 
-    chrome.storage.local.get(['vt_limit_override_' + yesterdayStr, 'stats_' + yesterdayStr], (yResult) => {
+    chrome.storage.local.get(['vt_limit_override_' + yesterdayStr], (yResult) => {
       const hadOverride = yResult['vt_limit_override_' + yesterdayStr];
-      const hadActivity = yResult['stats_' + yesterdayStr];
 
       if (hadOverride) {
-        // Override yesterday = reset streak
         streak = 0;
-      } else if (hadActivity || lastDate === yesterdayStr) {
-        // Had activity and didn't override = streak continues
+      } else {
+        // No override yesterday → credit a streak day (whether or not anything was watched).
         streak += 1;
-      }
-      // If no activity yesterday and last date wasn't yesterday, streak resets
-      else if (lastDate && lastDate !== yesterdayStr) {
-        streak = 0;
       }
 
       if (streak > best) best = streak;
@@ -187,7 +196,6 @@ function updateStreak() {
   });
 }
 
-// ── Handle override response from content script ──
 function handleLimitOverride() {
   const today = getTodayDate();
   chrome.storage.local.set({
@@ -196,22 +204,39 @@ function handleLimitOverride() {
   });
 }
 
-// ── Reset daily counters at midnight ──
-chrome.alarms.create('resetDaily', { periodInMinutes: 1 });
+// ── Daily reset alarm: fires once at next local midnight, then every 24h ──
+function scheduleMidnightAlarm() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 5, 0); // 5s past midnight to avoid race with date roll
+  chrome.alarms.create('resetDaily', { when: next.getTime(), periodInMinutes: 60 * 24 });
+}
+scheduleMidnightAlarm();
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'resetDaily') {
-    const now = new Date();
-    if (now.getHours() === 0 && now.getMinutes() === 0) {
-      chrome.storage.local.set({ lastNotifiedStep: 0 });
-      updateStreak();
-    }
+    updateStreak();
+    // lastNotifiedStep is now date-keyed; old keys get cleaned up opportunistically below.
+    cleanupOldNotifySteps();
   }
 });
 
-// Update streak on extension start
+function cleanupOldNotifySteps() {
+  chrome.storage.local.get(null, (all) => {
+    const today = getTodayDate();
+    const toRemove = [];
+    for (const k of Object.keys(all)) {
+      if (k.startsWith('lastNotifiedStep_') && k !== 'lastNotifiedStep_' + today) {
+        toRemove.push(k);
+      }
+      if (k === 'lastNotifiedStep') toRemove.push(k); // legacy
+    }
+    if (toRemove.length) chrome.storage.local.remove(toRemove);
+  });
+}
+
 updateStreak();
 
-// ── Message handler ──
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === 'LIMIT_OVERRIDE') {
     handleLimitOverride();
@@ -222,8 +247,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 
   const tabId = sender.tab ? sender.tab.id : null;
 
-  // Update daily stats first, then check notifications/limits after write completes
-  updateStats(getTodayKey(), msg.domain, msg, () => {
+  updateStats(getTodayKey(), msg.domain, msg).then(() => {
     if (msg.type === 'VIDEO_TICK') {
       checkNotification();
       checkLimits(tabId);
@@ -233,7 +257,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     }
   });
 
-  // Hourly and alltime can run in parallel, no dependency
   updateStats(getHourKey(), msg.domain, msg);
   updateStats('stats_alltime', msg.domain, msg);
 });

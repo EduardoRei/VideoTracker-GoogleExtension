@@ -17,7 +17,7 @@ A Chrome extension that tracks how many videos you watch and how much time you s
 - **Configurable notifications** — get reminded after X minutes of daily watch time (default: 60 min)
 - **Daily limits** — set max videos/day and max watch time/day
 - **Limit enforcement** — when a limit is reached, all videos are paused and an overlay asks if you want to stop or continue
-- **Streak gamification** — each day you stay under your limits earns a streak day; continuing past a limit resets the streak to 0
+- **Streak gamification** — your streak grows each day you don't override a daily limit; only an explicit "Continue past limit" resets it to 0 (rest days are fine)
 - **Best streak record** — your highest streak is saved and displayed
 - **Bilingual** — toggle between Portuguese and English (preference saved)
 - **Local only** — all data stays on your machine, no accounts, no network requests

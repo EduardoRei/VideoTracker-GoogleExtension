@@ -1,40 +1,74 @@
-const trackedVideos = new Set();
+const trackedVideos = new WeakSet();
+// Per-frame: once a limit is reached and shown, this blocks further tick accumulation
+// until the user explicitly chooses Continue (which clears it via LIMIT_OVERRIDE).
 let limitBlocked = false;
+
+const FLUSH_MS = 500;
+let pendingSeconds = 0;
+let pendingVideoStarts = 0;
+let flushTimer = null;
+
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(flush, FLUSH_MS);
+}
+
+function flush() {
+  flushTimer = null;
+  const domain = location.hostname;
+  if (pendingVideoStarts > 0) {
+    chrome.runtime.sendMessage({ type: 'VIDEO_STARTED', domain, count: pendingVideoStarts });
+    pendingVideoStarts = 0;
+  }
+  if (pendingSeconds > 0) {
+    chrome.runtime.sendMessage({ type: 'VIDEO_TICK', domain, seconds: pendingSeconds });
+    pendingSeconds = 0;
+  }
+}
+
+function markNewVideo() {
+  pendingVideoStarts += 1;
+  scheduleFlush();
+}
 
 function trackVideo(video) {
   if (trackedVideos.has(video)) return;
   trackedVideos.add(video);
 
-  const domain = location.hostname;
-
-  video.addEventListener('play', () => {
-    chrome.runtime.sendMessage({ type: 'VIDEO_STARTED', domain });
-  }, { once: true });
+  // `loadstart` fires whenever a new source loads (SPA navigations on YouTube
+  // reuse the same <video> element, so `play` alone undercounts videos).
+  let countedThisSource = false;
+  video.addEventListener('loadstart', () => { countedThisSource = false; });
 
   let lastTick = null;
+
+  video.addEventListener('play', () => {
+    if (!countedThisSource) {
+      countedThisSource = true;
+      markNewVideo();
+    }
+  });
 
   video.addEventListener('timeupdate', () => {
     if (video.paused || video.ended || limitBlocked) {
       lastTick = null;
       return;
     }
-
     const now = Date.now();
-
     if (lastTick !== null) {
       const elapsed = (now - lastTick) / 1000;
-
-      if (elapsed < 2) {
-        chrome.runtime.sendMessage({ type: 'VIDEO_TICK', domain, seconds: elapsed });
+      if (elapsed > 0 && elapsed < 2) {
+        pendingSeconds += elapsed;
+        scheduleFlush();
       }
     }
-
     lastTick = now;
   });
 
-  video.addEventListener('pause',  () => { lastTick = null; });
-  video.addEventListener('ended',  () => { lastTick = null; });
-  video.addEventListener('seeking', () => { lastTick = null; });
+  const resetTick = () => { lastTick = null; };
+  video.addEventListener('pause',  resetTick);
+  video.addEventListener('ended',  resetTick);
+  video.addEventListener('seeking', resetTick);
 }
 
 function pauseAllVideos() {
@@ -44,7 +78,6 @@ function pauseAllVideos() {
 }
 
 function showLimitOverlay(reason, streakWarning, lang) {
-  // Don't show multiple overlays
   if (document.getElementById('vt-limit-overlay')) return;
 
   pauseAllVideos();
@@ -70,69 +103,87 @@ function showLimitOverlay(reason, streakWarning, lang) {
     animation: vtFadeIn 0.3s ease;
   `;
 
-  card.innerHTML = `
-    <style>
-      @keyframes vtFadeIn {
-        from { opacity: 0; transform: scale(0.9); }
-        to { opacity: 1; transform: scale(1); }
-      }
-    </style>
-    <div style="font-size:48px; margin-bottom:12px;">&#9888;&#65039;</div>
-    <div style="font-size:18px; font-weight:700; color:#1a1a2e; margin-bottom:8px;">
-      ${reason}
-    </div>
-    <div style="font-size:13px; color:#e74c3c; font-weight:600; margin-bottom:24px;">
-      ${streakWarning}
-    </div>
-    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
-      <button id="vt-btn-stop" style="
-        padding: 10px 24px; border-radius: 10px; border: none;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff; font-size: 14px; font-weight: 700;
-        cursor: pointer; transition: opacity 0.2s;
-      ">${btnStop}</button>
-      <button id="vt-btn-continue" style="
-        padding: 10px 24px; border-radius: 10px;
-        border: 2px solid #e74c3c; background: transparent;
-        color: #e74c3c; font-size: 14px; font-weight: 700;
-        cursor: pointer; transition: all 0.2s;
-      ">${btnContinue}</button>
-    </div>
-  `;
+  const style = document.createElement('style');
+  style.textContent = `@keyframes vtFadeIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }`;
+  card.appendChild(style);
 
+  const icon = document.createElement('div');
+  icon.style.cssText = 'font-size:48px; margin-bottom:12px;';
+  icon.textContent = '⚠️';
+  card.appendChild(icon);
+
+  const reasonEl = document.createElement('div');
+  reasonEl.style.cssText = 'font-size:18px; font-weight:700; color:#1a1a2e; margin-bottom:8px;';
+  reasonEl.textContent = reason;
+  card.appendChild(reasonEl);
+
+  const warnEl = document.createElement('div');
+  warnEl.style.cssText = 'font-size:13px; color:#e74c3c; font-weight:600; margin-bottom:24px;';
+  warnEl.textContent = streakWarning;
+  card.appendChild(warnEl);
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex; gap:12px; justify-content:center; flex-wrap:wrap;';
+
+  const stopBtn = document.createElement('button');
+  stopBtn.style.cssText = `padding: 10px 24px; border-radius: 10px; border: none;
+    background: linear-gradient(135deg, #667eea, #764ba2); color: #fff;
+    font-size: 14px; font-weight: 700; cursor: pointer;`;
+  stopBtn.textContent = btnStop;
+
+  const continueBtn = document.createElement('button');
+  continueBtn.style.cssText = `padding: 10px 24px; border-radius: 10px;
+    border: 2px solid #e74c3c; background: transparent; color: #e74c3c;
+    font-size: 14px; font-weight: 700; cursor: pointer;`;
+  continueBtn.textContent = btnContinue;
+
+  btnRow.appendChild(stopBtn);
+  btnRow.appendChild(continueBtn);
+  card.appendChild(btnRow);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 
-  document.getElementById('vt-btn-stop').addEventListener('click', () => {
+  stopBtn.addEventListener('click', () => {
     overlay.remove();
-    // Keep videos paused, keep blocked
   });
 
-  document.getElementById('vt-btn-continue').addEventListener('click', () => {
+  continueBtn.addEventListener('click', () => {
     overlay.remove();
     limitBlocked = false;
-    // Notify background to override limits and reset streak
     chrome.runtime.sendMessage({ type: 'LIMIT_OVERRIDE' });
-    // Resume videos
     document.querySelectorAll('video').forEach(v => {
       if (v.paused && v.readyState >= 2) v.play();
     });
   });
 }
 
-// Listen for limit messages from background
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'LIMIT_REACHED') {
     showLimitOverlay(msg.reason, msg.streakWarning, msg.lang);
   }
 });
 
-// Track existing videos
 document.querySelectorAll('video').forEach(trackVideo);
 
-// Track dynamically added videos
-const observer = new MutationObserver(() => {
-  document.querySelectorAll('video').forEach(trackVideo);
+// Only re-scan when nodes are actually added, and only inspect the added subtrees.
+const observer = new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (!m.addedNodes || m.addedNodes.length === 0) continue;
+    for (const node of m.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.tagName === 'VIDEO') {
+        trackVideo(node);
+      } else if (node.querySelectorAll) {
+        const vids = node.querySelectorAll('video');
+        if (vids.length) vids.forEach(trackVideo);
+      }
+    }
+  }
 });
 
-observer.observe(document.body, { childList: true, subtree: true });
+if (document.body) {
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+// Flush on unload so we don't lose the last few seconds.
+window.addEventListener('pagehide', flush);
