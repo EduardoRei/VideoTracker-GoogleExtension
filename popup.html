@@ -318,6 +318,126 @@
       white-space: nowrap;
     }
     .setting-saved.show { opacity: 1; }
+
+    /* Gear button */
+    .btn-gear {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .btn-gear:hover { background: rgba(255,255,255,0.35); }
+
+    /* Modal overlay */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      position: relative;
+    }
+    .modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 8px;
+    }
+    .modal-text {
+      font-size: 12px;
+      color: #6b6d82;
+      line-height: 1.5;
+      margin-bottom: 16px;
+    }
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      color: #8b8da3;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    .modal-close:hover { color: #1a1a2e; }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-secondary {
+      background: #fff;
+      color: #6b6d82;
+      border: 1px solid #d8d9e3;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-secondary:hover { background: #f4f5f7; }
+
+    .modal-card .settings-section { margin-top: 0; }
+
+    .reset-area { margin-top: 12px; text-align: center; }
+    .btn-reset {
+      background: #fff;
+      color: #e74c3c;
+      border: 1px solid #e74c3c;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-reset:hover { background: #fdecea; }
+    .reset-confirm {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      background: #fdecea;
+      border-radius: 8px;
+      border: 1px solid #f5c6cb;
+    }
+    .reset-confirm.show { display: flex; }
+    .reset-warn { font-size: 12px; color: #c0392b; font-weight: 600; }
+    .reset-actions { display: flex; gap: 8px; }
+    .reset-area.confirming .btn-reset { display: none; }
   </style>
 </head>
 <body>
@@ -329,6 +449,9 @@
         CSV
       </button>
       <button class="lang-toggle" id="lang-toggle">EN</button>
+      <button class="btn-gear" id="btn-gear" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </button>
     </div>
   </div>
 
@@ -384,10 +507,26 @@
       </table>
     </div>
 
-    <!-- Settings -->
-    <div class="settings-section">
-      <div class="settings-title" data-i18n="settings_title">Configuracoes</div>
+  </div>
 
+  <!-- Onboarding modal -->
+  <div class="modal-overlay" id="onboarding-modal">
+    <div class="modal-card">
+      <div class="modal-title" data-i18n="onboarding_title">Bem-vindo ao Video Tracker</div>
+      <div class="modal-text" data-i18n="onboarding_text">Acompanhe seu tempo assistindo videos. Quer configurar limites diarios agora?</div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="onboarding-skip" data-i18n="onboarding_skip">Deixar para depois</button>
+        <button class="btn-primary" id="onboarding-configure" data-i18n="onboarding_configure">Configurar agora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal-card">
+      <button class="modal-close" id="settings-close" title="Fechar">&times;</button>
+      <div class="modal-title" data-i18n="settings_title">Configuracoes</div>
+      <div class="settings-section">
       <!-- Notify interval -->
       <div class="setting-row">
         <label>
@@ -447,6 +586,18 @@
 
       <div style="font-size:10px; color:#b5b7c9; text-align:center; margin-top:2px;">
         <span data-i18n="limits_hint">0 = sem limite</span>
+      </div>
+
+      <div class="reset-area" id="reset-area">
+        <button class="btn-reset" id="btn-reset" data-i18n="reset_limits">Resetar limites</button>
+        <div class="reset-confirm" id="reset-confirm">
+          <span class="reset-warn" data-i18n="reset_confirm">Resetar todos os limites?</span>
+          <div class="reset-actions">
+            <button class="btn-secondary" id="reset-no" data-i18n="reset_no">Nao</button>
+            <button class="btn-primary" id="reset-yes" data-i18n="reset_yes">Sim</button>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
   </div>

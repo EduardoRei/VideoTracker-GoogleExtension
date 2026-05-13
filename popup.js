@@ -22,7 +22,15 @@ const i18n = {
     streak_days: 'dias de streak',
     streak_best: 'Recorde:',
     saved: 'Salvo!',
-    toggle: 'EN'
+    toggle: 'EN',
+    onboarding_title: 'Bem-vindo ao Video Tracker',
+    onboarding_text: 'Acompanhe seu tempo assistindo videos. Quer configurar limites diarios agora?',
+    onboarding_configure: 'Configurar agora',
+    onboarding_skip: 'Deixar para depois',
+    reset_limits: 'Resetar limites',
+    reset_confirm: 'Resetar todos os limites?',
+    reset_yes: 'Sim',
+    reset_no: 'Nao'
   },
   en: {
     tab_today: 'Today',
@@ -46,7 +54,15 @@ const i18n = {
     streak_days: 'day streak',
     streak_best: 'Best:',
     saved: 'Saved!',
-    toggle: 'PT'
+    toggle: 'PT',
+    onboarding_title: 'Welcome to Video Tracker',
+    onboarding_text: 'Track time spent watching videos. Want to set daily limits now?',
+    onboarding_configure: 'Configure now',
+    onboarding_skip: 'Maybe later',
+    reset_limits: 'Reset limits',
+    reset_confirm: 'Reset all limits?',
+    reset_yes: 'Yes',
+    reset_no: 'No'
   }
 };
 
@@ -497,3 +513,52 @@ setupSetting('max-videos', 'maxvid-confirm', 'maxvid-dismiss', 'maxvid-saved',
 
 setupSetting('max-time', 'maxtime-confirm', 'maxtime-dismiss', 'maxtime-saved',
   'vt_max_time');
+
+// ── Modals ──
+const settingsModal = document.getElementById('settings-modal');
+const onboardingModal = document.getElementById('onboarding-modal');
+
+function openSettings() { settingsModal.classList.add('show'); }
+function closeSettings() { settingsModal.classList.remove('show'); }
+function closeOnboarding() { onboardingModal.classList.remove('show'); }
+
+document.getElementById('btn-gear').addEventListener('click', openSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
+
+document.getElementById('onboarding-configure').addEventListener('click', () => {
+  chrome.storage.local.set({ vt_onboarded: true });
+  closeOnboarding();
+  openSettings();
+});
+document.getElementById('onboarding-skip').addEventListener('click', () => {
+  chrome.storage.local.set({ vt_onboarded: true });
+  closeOnboarding();
+});
+
+chrome.storage.local.get(['vt_onboarded'], (result) => {
+  if (!result.vt_onboarded) onboardingModal.classList.add('show');
+});
+
+// Reset limits
+const resetArea = document.getElementById('reset-area');
+const resetConfirm = document.getElementById('reset-confirm');
+document.getElementById('btn-reset').addEventListener('click', () => {
+  resetArea.classList.add('confirming');
+  resetConfirm.classList.add('show');
+});
+document.getElementById('reset-no').addEventListener('click', () => {
+  resetArea.classList.remove('confirming');
+  resetConfirm.classList.remove('show');
+});
+document.getElementById('reset-yes').addEventListener('click', () => {
+  chrome.storage.local.set({ vt_max_videos: 0, vt_max_time: 0 });
+  document.getElementById('max-videos').value = 0;
+  document.getElementById('max-time').value = 0;
+  resetArea.classList.remove('confirming');
+  resetConfirm.classList.remove('show');
+  flashSaved('maxvid-saved');
+  flashSaved('maxtime-saved');
+});
