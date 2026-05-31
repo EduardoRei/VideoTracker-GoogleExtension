@@ -7,21 +7,61 @@ const FLUSH_MS = 500;
 let pendingSeconds = 0;
 let pendingVideoStarts = 0;
 let flushTimer = null;
+let extensionInvalidated = false;
+
+function isExtensionAlive() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
+}
+
+function handleInvalidation() {
+  if (extensionInvalidated) return;
+  extensionInvalidated = true;
+  pendingSeconds = 0;
+  pendingVideoStarts = 0;
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  try { observer && observer.disconnect(); } catch (_) {}
+}
+
+function safeSendMessage(msg) {
+  if (extensionInvalidated || !isExtensionAlive()) {
+    handleInvalidation();
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage(msg, () => {
+      const err = chrome.runtime.lastError;
+      if (!err) return;
+      const m = err.message || '';
+      if (m.includes('context invalidated') || m.includes('Receiving end')) {
+        handleInvalidation();
+      }
+    });
+  } catch (e) {
+    if (String(e && e.message).includes('context invalidated')) {
+      handleInvalidation();
+    }
+  }
+}
 
 function scheduleFlush() {
-  if (flushTimer) return;
+  if (flushTimer || extensionInvalidated) return;
   flushTimer = setTimeout(flush, FLUSH_MS);
 }
 
 function flush() {
   flushTimer = null;
+  if (extensionInvalidated) return;
   const domain = location.hostname;
   if (pendingVideoStarts > 0) {
-    chrome.runtime.sendMessage({ type: 'VIDEO_STARTED', domain, count: pendingVideoStarts });
+    safeSendMessage({ type: 'VIDEO_STARTED', domain, count: pendingVideoStarts });
     pendingVideoStarts = 0;
   }
   if (pendingSeconds > 0) {
-    chrome.runtime.sendMessage({ type: 'VIDEO_TICK', domain, seconds: pendingSeconds });
+    safeSendMessage({ type: 'VIDEO_TICK', domain, seconds: pendingSeconds });
     pendingSeconds = 0;
   }
 }
@@ -157,7 +197,7 @@ function showLimitOverlay(reason, streakWarning, lang) {
   continueBtn.addEventListener('click', () => {
     overlay.remove();
     limitBlocked = false;
-    chrome.runtime.sendMessage({ type: 'LIMIT_OVERRIDE' });
+    safeSendMessage({ type: 'LIMIT_OVERRIDE' });
     document.querySelectorAll('video').forEach(v => {
       if (v.paused && v.readyState >= 2) v.play();
     });
